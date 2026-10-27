@@ -1,8 +1,20 @@
 // 화면 담당 파일
 let data = Store.load();
+if (!data.activeSession) data.timer = null; // 운동 중이 아니면 남은 타이머 정리
+
 const ui = { tab: 'home', routineId: null };
 const main = document.getElementById('main');
 const tabbar = document.getElementById('tabbar');
+
+// 휴식 타이머 바(화면 아래, 탭 위에 떠 있음)
+const timerbar = document.createElement('div');
+timerbar.id = 'timerbar';
+document.body.insertBefore(timerbar, tabbar);
+
+let wakeLock = null;
+let wakePending = false;
+let wakeStatus = '확인 전';
+let audioCtx = null;
 
 const TABS = [
   { id: 'home', label: '홈' },
@@ -58,6 +70,180 @@ function countDone(s) {
   return n;
 }
 
+/* ---------- 소리 ---------- */
+
+// 아이폰은 화면을 한 번 눌러야 소리를 낼 수 있어서, 버튼을 누를 때마다 준비해 둔다
+function unlockAudio() {
+  try {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  } catch (e) {}
+}
+
+function beep() {
+  if (audioCtx) {
+    try {
+      for (let i = 0; i < 3; i++) {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'sine';
+        o.frequency.value = 880;
+        o.connect(g);
+        g.connect(audioCtx.destination);
+        const t0 = audioCtx.currentTime + i * 0.4;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.4, t0 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.3);
+        o.start(t0);
+        o.stop(t0 + 0.32);
+      }
+    } catch (e) {}
+  }
+  try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
+}
+
+/* ---------- 화면 켜짐 유지 ---------- */
+
+function setWakeStatus(t) {
+  wakeStatus = t;
+  const el = document.getElementById('wake-status');
+  if (el) el.textContent = t;
+}
+
+async function updateWakeLock() {
+  if (!('wakeLock' in navigator)) { setWakeStatus('이 기기에서 지원 안 됨'); return; }
+  if (wakePending) return;
+  const need = !!data.activeSession && document.visibilityState === 'visible';
+  wakePending = true;
+  try {
+    if (need && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', function () { wakeLock = null; });
+      setWakeStatus('켜짐');
+    } else if (!need && wakeLock) {
+      await wakeLock.release();
+      wakeLock = null;
+      setWakeStatus('꺼짐');
+    }
+  } catch (e) {
+    wakeLock = null;
+    setWakeStatus('실패: ' + (e && e.name ? e.name : '오류'));
+  }
+  wakePending = false;
+}
+
+/* ---------- 휴식 타이머 ---------- */
+// data.timer = { label, total, endAt, remainMs(일시정지 중일 때만 값 있음), finished }
+
+function fmt(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return Math.floor(s / 60) + ':' + pad(s % 60);
+}
+
+function timerRemaining(t) {
+  return t.remainMs !== null ? t.remainMs : t.endAt - Date.now();
+}
+
+function startTimer(label, sec) {
+  if (!sec || sec <= 0) {
+    data.timer = null;
+  } else {
+    data.timer = {
+      label: label,
+      total: sec * 1000,
+      endAt: Date.now() + sec * 1000,
+      remainMs: null,
+      finished: false
+    };
+  }
+  persist();
+  renderTimerBar();
+}
+
+function adjustTimer(deltaSec) {
+  const t = data.timer;
+  if (!t || t.finished) return;
+  if (t.remainMs !== null) {
+    t.remainMs = Math.max(1000, t.remainMs + deltaSec * 1000);
+  } else {
+    t.endAt = Math.max(Date.now() + 1000, t.endAt + deltaSec * 1000);
+  }
+  persist();
+  renderTimerBar();
+}
+
+function togglePause() {
+  const t = data.timer;
+  if (!t || t.finished) return;
+  if (t.remainMs === null) {
+    t.remainMs = Math.max(0, t.endAt - Date.now());
+  } else {
+    t.endAt = Date.now() + t.remainMs;
+    t.remainMs = null;
+  }
+  persist();
+  renderTimerBar();
+}
+
+function finishTimer(t) {
+  t.finished = true;
+  persist();
+  // 끝난 지 얼마 안 됐을 때만 소리를 낸다 (다른 앱에 갔다 온 뒤 뒤늦게 울리지 않도록)
+  if (Date.now() - t.endAt < 3000) beep();
+  renderTimerBar();
+}
+
+function tickTimer() {
+  const t = data.timer;
+  if (!t) return;
+  const el = document.getElementById('tb-time');
+  if (t.finished) {
+    if (el) el.textContent = '0:00';
+    return;
+  }
+  const rem = timerRemaining(t);
+  if (rem <= 0 && t.remainMs === null) {
+    finishTimer(t);
+    return;
+  }
+  if (el) el.textContent = fmt(rem);
+}
+
+function positionTimerBar() {
+  timerbar.style.bottom = tabbar.offsetHeight + 'px';
+}
+
+function renderTimerBar() {
+  const t = data.timer;
+  document.body.classList.toggle('has-timer', !!t);
+  if (!t) {
+    timerbar.style.display = 'none';
+    timerbar.innerHTML = '';
+    return;
+  }
+  timerbar.style.display = 'block';
+  positionTimerBar();
+  const paused = t.remainMs !== null;
+  let btns;
+  if (t.finished) {
+    btns = '<button class="primary" data-t="close">휴식 끝 · 닫기</button>';
+  } else {
+    btns = '<button data-t="m15">-15</button>' +
+      '<button data-t="pause">' + (paused ? '재개' : '일시정지') + '</button>' +
+      '<button data-t="p15">+15</button>' +
+      '<button data-t="clock">시계앱</button>' +
+      '<button class="danger" data-t="close">건너뛰기</button>';
+  }
+  timerbar.innerHTML =
+    '<div class="tb-top"><span class="tb-label">' + esc(t.label) + '</span>' +
+    '<span id="tb-time" class="tb-time"></span></div>' +
+    '<div class="tb-btns">' + btns + '</div>';
+  tickTimer();
+}
+
 /* ---------- 운동 세션(오늘 운동) ---------- */
 
 // 루틴을 "복사"해서 오늘 운동을 만든다. 루틴 자체는 바뀌지 않는다.
@@ -94,6 +280,7 @@ function finishSession() {
   if (done === 0) {
     if (!confirm('완료한 세트가 없어요. 기록하지 않고 운동을 끝낼까요?')) return false;
     data.activeSession = null;
+    data.timer = null;
     persist();
     return true;
   }
@@ -117,6 +304,7 @@ function finishSession() {
 
   data.sessions.push(s);
   data.activeSession = null;
+  data.timer = null;
   persist();
   return true;
 }
@@ -171,7 +359,8 @@ function renderWorkout() {
   }
 
   let html = '<h1>' + esc(s.routineName) + '</h1>' +
-    '<p class="muted">' + esc(s.date) + ' · 완료 ' + countDone(s) + '세트</p>';
+    '<p class="muted">' + esc(s.date) + ' · 완료 ' + countDone(s) + '세트</p>' +
+    '<p class="muted">화면 켜짐 유지: <span id="wake-status">' + esc(wakeStatus) + '</span></p>';
 
   s.exercises.forEach(function (ex) {
     html += '<div class="card">' +
@@ -192,6 +381,10 @@ function renderWorkout() {
         '<button data-action="add-set" data-sx="' + ex.id + '">+ 세트</button>' +
         '<span class="spacer"></span>' +
         '<button class="danger" data-action="del-sex" data-sx="' + ex.id + '">운동 삭제</button>' +
+      '</div>' +
+      '<div class="row" style="margin-top:10px">' +
+        '<label style="margin:0;white-space:nowrap">휴식(초)</label>' +
+        '<input type="number" inputmode="numeric" min="0" step="5" data-sx="' + ex.id + '" data-sf="rest" value="' + ex.rest + '" style="width:90px;text-align:center">' +
       '</div>' +
       '<label style="margin-top:10px">메모</label>' +
       '<textarea data-sx="' + ex.id + '" data-sf="note" rows="2" placeholder="메모 (예: 기구 사용 불가로 대체)">' + esc(ex.note) + '</textarea>' +
@@ -265,11 +458,14 @@ function render() {
   else if (ui.tab === 'workout') renderWorkout();
   else if (ui.tab === 'routines') renderRoutines();
   else renderHistory();
+  renderTimerBar();
+  updateWakeLock();
 }
 
 /* ---------- 버튼 누를 때 ---------- */
 
 tabbar.addEventListener('click', function (e) {
+  unlockAudio();
   const btn = e.target.closest('[data-tab]');
   if (!btn) return;
   ui.tab = btn.dataset.tab;
@@ -278,7 +474,27 @@ tabbar.addEventListener('click', function (e) {
   window.scrollTo(0, 0);
 });
 
+timerbar.addEventListener('click', function (e) {
+  unlockAudio();
+  const b = e.target.closest('[data-t]');
+  if (!b) return;
+  const a = b.dataset.t;
+  if (a === 'm15') adjustTimer(-15);
+  else if (a === 'p15') adjustTimer(15);
+  else if (a === 'pause') togglePause();
+  else if (a === 'close') { data.timer = null; persist(); renderTimerBar(); }
+  else if (a === 'clock') {
+    const t = data.timer;
+    if (t) {
+      const sec = Math.max(1, Math.ceil(timerRemaining(t) / 1000));
+      location.href = 'shortcuts://run-shortcut?name=' +
+        encodeURIComponent('휴식타이머') + '&input=text&text=' + sec;
+    }
+  }
+});
+
 main.addEventListener('click', function (e) {
+  unlockAudio();
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
 
@@ -301,8 +517,14 @@ main.addEventListener('click', function (e) {
   } else if (action === 'resume') {
     ui.tab = 'workout';
   } else if (action === 'toggle-set' && s) {
+    const ex = findEx(s, btn.dataset.sx);
     const st = findSet(s, btn.dataset.sx, btn.dataset.ss);
-    if (st) { st.done = !st.done; persist(); }
+    if (ex && st) {
+      st.done = !st.done;
+      persist();
+      // 체크했을 때만 휴식 타이머 시작
+      if (st.done) startTimer((ex.name.trim() || '휴식') + ' 휴식', ex.rest);
+    }
     keep = true;
   } else if (action === 'add-set' && s) {
     const ex = findEx(s, btn.dataset.sx);
@@ -389,6 +611,10 @@ main.addEventListener('input', function (e) {
     ex.name = t.value;
   } else if (f === 'note') {
     ex.note = t.value;
+  } else if (f === 'rest') {
+    let v = parseFloat(t.value);
+    if (isNaN(v) || v < 0) v = 0;
+    ex.rest = Math.round(v);
   } else {
     const st = findSet(s, t.dataset.sx, t.dataset.ss);
     if (!st) return;
@@ -431,6 +657,15 @@ main.addEventListener('change', function (e) {
     t.value = v;
   }
   persist();
+});
+
+/* ---------- 시작 ---------- */
+
+setInterval(tickTimer, 250);
+window.addEventListener('resize', positionTimerBar);
+document.addEventListener('visibilitychange', function () {
+  tickTimer();
+  updateWakeLock();
 });
 
 render();
