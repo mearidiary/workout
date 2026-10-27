@@ -2,7 +2,7 @@
 let data = Store.load();
 if (!data.activeSession) data.timer = null; // 운동 중이 아니면 남은 타이머 정리
 
-const ui = { tab: 'home', routineId: null };
+const ui = { tab: 'home', routineId: null, historyId: null };
 const main = document.getElementById('main');
 const tabbar = document.getElementById('tabbar');
 
@@ -396,8 +396,61 @@ function renderWorkout() {
   main.innerHTML = html;
 }
 
+function sessionStats(s) {
+  let sets = 0, volume = 0;
+  s.exercises.forEach(function (ex) {
+    ex.sets.forEach(function (st) { sets++; volume += st.weight * st.reps; });
+  });
+  return { sets: sets, volume: volume };
+}
+
+function fmtNum(n) { return String(Math.round(n * 10) / 10); }
+
 function renderHistory() {
-  main.innerHTML = '<h1>기록</h1><p class="muted">준비 중입니다.</p>';
+  if (ui.historyId) { renderHistoryDetail(); return; }
+  let html = '<h1>기록</h1>';
+  if (data.sessions.length === 0) {
+    html += '<p class="muted">아직 기록이 없어요.</p>';
+  }
+  const list = data.sessions.slice().sort(function (a, b) {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+    return (b.startedAt || 0) - (a.startedAt || 0);
+  });
+  list.forEach(function (s) {
+    const st = sessionStats(s);
+    html += '<button class="card item" data-action="open-history" data-id="' + s.id + '">' +
+      '<b>' + esc(s.date) + '</b> · ' + esc(s.routineName) + '<br>' +
+      '<span class="muted">운동 ' + s.exercises.length + '개 · ' + st.sets + '세트 · 운동량 ' + fmtNum(st.volume) + 'kg</span></button>';
+  });
+  main.innerHTML = html;
+}
+
+function renderHistoryDetail() {
+  const s = data.sessions.find(function (x) { return x.id === ui.historyId; });
+  if (!s) { ui.historyId = null; renderHistory(); return; }
+  const tot = sessionStats(s);
+
+  let html = '<div class="row"><button data-action="back-history">← 목록</button></div>';
+  html += '<h1>' + esc(s.routineName) + '</h1>';
+  html += '<p class="muted">' + esc(s.date) + ' · ' + tot.sets + '세트 · 운동량 ' + fmtNum(tot.volume) + 'kg</p>';
+
+  s.exercises.forEach(function (ex) {
+    let vol = 0;
+    ex.sets.forEach(function (st) { vol += st.weight * st.reps; });
+    html += '<div class="card"><b>' + esc(ex.name) + '</b>' +
+      '<span class="muted"> · 운동량 ' + fmtNum(vol) + 'kg</span>';
+    ex.sets.forEach(function (st, i) {
+      html += '<div class="hline"><span class="muted">' + (i + 1) + '세트</span>' +
+        '<span>' + fmtNum(st.weight) + 'kg × ' + st.reps + '회</span></div>';
+    });
+    if (ex.note && ex.note.trim() !== '') {
+      html += '<p class="muted" style="margin:10px 0 0;white-space:pre-wrap">메모: ' + esc(ex.note) + '</p>';
+    }
+    html += '</div>';
+  });
+
+  html += '<p><button class="danger wide" data-action="del-history">이 기록 삭제</button></p>';
+  main.innerHTML = html;
 }
 
 function renderRoutines() {
@@ -470,6 +523,7 @@ tabbar.addEventListener('click', function (e) {
   if (!btn) return;
   ui.tab = btn.dataset.tab;
   ui.routineId = null;
+  ui.historyId = null;
   render();
   window.scrollTo(0, 0);
 });
@@ -551,8 +605,16 @@ main.addEventListener('click', function (e) {
     s.exercises.push({ id: Store.newId(), name: '', rest: 90, note: '', sets: [newSet(0, 10)] });
     persist();
     keep = true;
-  } else if (action === 'finish') {
-    if (finishSession()) ui.tab = 'home';
+  } else if (action === 'open-history') {
+    ui.historyId = btn.dataset.id;
+  } else if (action === 'back-history') {
+    ui.historyId = null;
+  } else if (action === 'del-history') {
+    if (confirm('이 기록을 삭제할까요?\n삭제하면 되돌릴 수 없어요.')) {
+      data.sessions = data.sessions.filter(function (x) { return x.id !== ui.historyId; });
+      persist();
+      ui.historyId = null;
+    }
 
   /* --- 루틴 편집 --- */
   } else if (action === 'new-routine') {
