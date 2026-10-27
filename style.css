@@ -62,3 +62,14 @@ button.check {
 }
 button.check.on { background: var(--accent); border-color: var(--accent); }
 button.small { padding: 8px 0; }
+#timerbar {
+  display: none; position: fixed; left: 0; right: 0;
+  background: #232a3b; border-top: 1px solid var(--line);
+  padding: 10px 12px; z-index: 5;
+}
+.tb-top { display: flex; justify-content: space-between; align-items: baseline; }
+.tb-label { color: var(--muted); font-size: 14px; }
+.tb-time { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tb-btns { display: flex; gap: 6px; margin-top: 6px; }
+.tb-btns button { flex: 1; padding: 10px 4px; font-size: 15px; }
+body.has-timer main { padding-bottom: calc(190px + env(safe-area-inset-bottom)); }
