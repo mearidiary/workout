@@ -1,0 +1,9 @@
+{
+  "name": "운동기록",
+  "short_name": "운동기록",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#111111"
+}
