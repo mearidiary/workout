@@ -1,1 +1,61 @@
-<h1>Hello</h1>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="운동기록">
+<link rel="manifest" href="manifest.json">
+<title>운동기록 테스트</title>
+<style>
+  body { margin: 0; padding: 24px; background: #111; color: #eee;
+         font-family: -apple-system, sans-serif; font-size: 18px; }
+  h1 { font-size: 22px; }
+  .box { background: #222; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  input, button { font-size: 18px; padding: 12px; border-radius: 10px; border: none; }
+  input { width: 80px; }
+  button { background: #3a7afe; color: #fff; margin-left: 8px; }
+</style>
+</head>
+<body>
+  <h1>운동기록 테스트</h1>
+
+  <div class="box">
+    <div>1) 홈 화면 앱으로 실행 중: <b id="mode"></b></div>
+  </div>
+
+  <div class="box">
+    <div>2) 실행 횟수(저장 테스트): <b id="count"></b></div>
+  </div>
+
+  <div class="box">
+    <div>3) 시계 타이머 호출 테스트</div>
+    <p><input id="sec" type="number" value="10"> 초
+    <button onclick="callTimer()">타이머 시작</button></p>
+  </div>
+
+<script>
+  const standalone = window.navigator.standalone === true ||
+    window.matchMedia('(display-mode: standalone)').matches;
+  document.getElementById('mode').textContent =
+    standalone ? '예' : '아니오 (Safari 탭)';
+
+  let n;
+  try {
+    n = Number(localStorage.getItem('openCount') || 0) + 1;
+    localStorage.setItem('openCount', n);
+  } catch (e) {
+    n = '저장 실패';
+  }
+  document.getElementById('count').textContent = n;
+
+  function callTimer() {
+    const sec = document.getElementById('sec').value || 10;
+    location.href = 'shortcuts://run-shortcut?name=' +
+      encodeURIComponent('휴식타이머') +
+      '&input=text&text=' + encodeURIComponent(sec);
+  }
+</script>
+</body>
+</html>
