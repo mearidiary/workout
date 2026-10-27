@@ -42,3 +42,23 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px
   padding: 14px 0; color: var(--muted); font-size: 15px;
 }
 #tabbar button.active { color: var(--accent); font-weight: 600; }
+h2 { font-size: 18px; margin: 20px 0 10px; }
+textarea {
+  font: inherit; width: 100%; padding: 10px; border-radius: 10px;
+  border: 1px solid var(--line); background: #161616; color: var(--text);
+  resize: vertical;
+}
+.setrow {
+  display: grid; grid-template-columns: 32px 1fr 1fr 52px 36px;
+  gap: 8px; align-items: center; margin-top: 8px;
+}
+.setrow.head { font-size: 13px; color: var(--muted); text-align: center; margin-top: 12px; }
+.setrow input { text-align: center; padding: 10px 4px; }
+.setrow.done input { opacity: 0.5; }
+.setno { text-align: center; color: var(--muted); }
+button.check {
+  height: 46px; padding: 0; border: 2px solid var(--line);
+  background: transparent; font-size: 22px; color: #fff;
+}
+button.check.on { background: var(--accent); border-color: var(--accent); }
+button.small { padding: 8px 0; }
