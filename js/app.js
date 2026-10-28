@@ -605,6 +605,8 @@ main.addEventListener('click', function (e) {
     s.exercises.push({ id: Store.newId(), name: '', rest: 90, note: '', sets: [newSet(0, 10)] });
     persist();
     keep = true;
+  } else if (action === 'finish') {
+    if (finishSession()) ui.tab = 'home';
   } else if (action === 'open-history') {
     ui.historyId = btn.dataset.id;
   } else if (action === 'back-history') {
